@@ -1,0 +1,79 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "release_package/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Run tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q
+
+      - name: Build executable
+        run: pyinstaller --onefile --windowed --name XMU-Donation-Tool main.py
+
+      - name: Prepare release package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release_package | Out-Null
+          Copy-Item dist/XMU-Donation-Tool.exe release_package/XMU-Donation-Tool.exe -Force
+          $size = (Get-Item release_package/XMU-Donation-Tool.exe).Length
+          "EXE_SIZE=$size" | Out-File -FilePath $env:GITHUB_ENV -Append
+          if ($size -le 100MB) {
+            "EXE_CAN_COMMIT=true" | Out-File -FilePath $env:GITHUB_ENV -Append
+          } else {
+            "EXE_CAN_COMMIT=false" | Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: XMU-Donation-Tool-windows
+          path: release_package/XMU-Donation-Tool.exe
+
+      - name: Commit executable to repository
+        if: env.EXE_CAN_COMMIT == 'true'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add release_package/XMU-Donation-Tool.exe
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: add Windows executable [skip ci]"
+          git push
+
+      - name: Upload executable to GitHub Release when too large for Git
+        if: env.EXE_CAN_COMMIT != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = "windows-exe-${{ github.run_number }}"
+          gh release create $tag release_package/XMU-Donation-Tool.exe --target $env:GITHUB_SHA --title "Windows executable $tag" --notes "The Windows executable is stored as a release asset because it is larger than GitHub's ordinary 100 MiB file limit."

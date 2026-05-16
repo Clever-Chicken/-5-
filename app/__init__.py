@@ -1,0 +1,1 @@
+"""XMU donation desktop tool."""
