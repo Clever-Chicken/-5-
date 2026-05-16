@@ -10,6 +10,11 @@ from PySide6.QtWidgets import QHeaderView, QTableView
 
 from app.models import DonationRecord
 
+try:
+    from pypinyin import lazy_pinyin
+except ImportError:  # pragma: no cover - dependency is installed in the packaged build.
+    lazy_pinyin = None
+
 RECORD_HEADERS = ["记录号", "捐赠时间", "捐赠人", "院系专业", "校友会", "捐赠项目", "捐赠金额"]
 REPORT_ROW_LIMIT = 100
 NUMERIC_HEADERS = {"累计捐赠金额", "捐赠次数", "捐赠金额"}
@@ -251,7 +256,10 @@ def _display_value(header: str, value: Any) -> str:
 def _sort_value(header: str, value: Any) -> Decimal | Any:
     if header in NUMERIC_HEADERS:
         return Decimal(str(value))
-    return TEXT_COLLATOR.sortKey(_display_value(header, value))
+    displayed = _display_value(header, value)
+    if lazy_pinyin is not None:
+        return tuple(lazy_pinyin(displayed))
+    return TEXT_COLLATOR.sortKey(displayed)
 
 
 def _normalize_sort_columns(headers: list[str], sort_columns: Iterable[str | int] | None) -> set[str]:
